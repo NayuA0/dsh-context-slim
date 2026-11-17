@@ -1,0 +1,38 @@
+{
+  "name": "dsh-context-slim",
+  "version": "0.1.0",
+  "description": "阶梯式上下文瘦身（不是摘要）：按层把旧对话的工具参数、工具结果、思考链从模型可见历史里去掉，用户原话与助手正文保留。L4 交给分层压缩。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./skill/SKILL.md": "./skill/SKILL.md",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "skill",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "context",
+    "compaction",
+    "token-saving"
+  ],
+  "engines": {
+    "dsh": ">=0.2.0-0 <0.3.0-0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}
