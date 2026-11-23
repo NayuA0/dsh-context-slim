@@ -29,7 +29,7 @@ slim_context({ level: 3 })                 // 再去掉思考链
 参数：
 
 - `level` — 1 / 2 / 3，默认 3
-- `keepTurns` — 保留最近多少轮用户消息**完全不动**，默认 6。当前轮永远不碰
+- `keepTurns` — 保留最近多少轮用户消息**完全不动**，默认 2（与 `dsh-ebbing-context` 的 `keepTurns` 对齐，避免两套改写边界交叉）。当前轮永远不碰
 - `dryRun` — 只统计不写入
 
 ## 为什么不用 surfaceOp replace
@@ -86,6 +86,31 @@ if (projected !== undefined) return projected
 - **压缩**（`compress`）：把一段对话折成一条摘要，原文移出上下文 —— 文字会丢
 - **瘦身**（本插件）：只摘掉过程（参数 / 工具 / 思考），**原话留着** —— 字都还在
 
+## 配对是原子的（0.1.2 修）
+
+宿主的校验是硬的：一条 assistant 里的**每个** `tool_use`，必须在**紧接着的一条 user** 的 `tool_result` 里**全部**命中。少一个就：
+
+```
+INVALID_REQUEST  DeepSeek Messages tool calls need immediate results
+```
+
+旧版按单条事件各自决策，遇到并行调用就会这样断：
+
+```
+assistant [call c1, call c2]   ← 整条受保护，两个 call 都留着
+tool result c1                 ← 没被保护，抹成空消息，消失
+tool result c2                 ← 触发保护，留下
+→ c1 永远补不上结果 → 整轮被拒
+```
+
+现在：
+
+- `closeOver()` 把保护集合闭包成完整组（assistant ↔ 它全部 result，双向）
+- 瘦身分两遍：先判 assistant 瘦不瘦，`tool/result` 只在**它的 owner 也被瘦**时才抹
+- `repairBrokenGroups()` 在 `agent/pre-step` 每步自检，把断掉的组整组拉回原文（幂等，没坏账就什么都不写）
+
+已经坏掉的会话不用手动救：重启宿主、打开它、发一句话，自愈。想手动确认就 `slim_context({ repair: true })`。
+
 ## 撤销与恢复
 
 投影是**累积覆盖**，后写的盖先写的。要撤回某一批，再写一条 `plugin:dsh-context-slim/rewrite`，把那些 seq 映射回原消息即可。
@@ -126,6 +151,61 @@ cp -r . ~/.dsh/profiles/desktop/node_modules/dsh-context-slim/
 - **不可逆**（在模型可见的上下文里）。原文还在日志里，但换回去要再写一条投影记录
 - `tool-call` / `tool/result` 必须成对处理。L2 把两边一起拿掉，不会悬空
 - 只在 `keepTurns` 之外动手，当前轮永远不碰
+- **别拆散「工具对 → system/developer 更新」**，见下节。拆了整轮请求会被服务端拒
+
+## ⚠️ `UNSUPPORTED_CONTENT`：一个真炸过的坑
+
+2026-11-18 真出过事——瘦身之后**整轮请求被服务端拒，怎么发都发不出去**：
+
+```
+DeepSeek Messages cannot represent system update without a preceding user or tool-result turn
+代码：UNSUPPORTED_CONTENT
+```
+
+### 根因
+
+DeepSeek Messages 有一条没写进文档的顺序规则：
+
+> `system/message` 和 `developer/message` 会被转成 **system update**，
+> 而 system update 前面必须紧跟一条 **user 消息或工具结果**。
+
+工具结果在 wire 格式里映射成 user 角色，所以正常是这样，合法：
+
+```
+assistant + tool_call
+tool result          ← 映射成 user
+system update        ← 前面是 user，允许
+assistant
+```
+
+但 L2/L3 会把工具结果投影成**空 assistant**，空消息被序列化器直接跳过。前一条就变成了 assistant：
+
+```
+assistant            ← tool_call 也被删了
+system update        ← 前面既不是 user 也不是工具结果
+assistant            ← 非法，服务端拒整轮
+```
+
+### 怎么修的
+
+`protectedToolPairs(session)`：扫当前可见 surface 里的 `system/message` 和 `developer/message`，
+对每条找出**紧挨在它前面的工具结果**，再往前找到对应的 assistant 工具调用，两边都标成受保护、不参与瘦身。
+
+`restoreProtectedToolPairs()`：对已经被旧版删掉的，写一条 `level: 0` 投影把原消息恢复回去。
+
+两个时机：`session/created` 后一次；`agent/pre-step` **每轮请求前**再查一次（兜底 —— 恢复钩子没跑完、或者后来又新增了投影，这一步能接住）。
+
+### 给改这块代码的人的底线
+
+> **任何会被 DeepSeek 转成 system update 的消息，它前面紧挨的工具调用对，不能单独拆掉。**
+
+回归用例（改完至少要过前两条）：
+
+1. `assistant + tool_call → tool_result → system/message → assistant`
+2. `assistant + tool_call → tool_result → developer/message → assistant`
+3. 连续多个 system/developer 更新
+4. L2 和 L3 投影后重新构建一次消息序列
+5. 旧投影恢复记录覆盖后，历史工具调用和结果仍成对
 
 ## License
 
