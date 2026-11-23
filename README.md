@@ -158,7 +158,6 @@ pnpm add file:<你 clone 的位置>/dsh-context-slim
 ### 别把它当长期依赖
 
 它用的是 `registerMessageProjection` 这类宿主内部接口，DSH 升级就可能坏。所以没有 npm 发布、也不打算发 —— 从 GitHub 装，什么坏了能一眼看出装的是哪一天的 commit。
-
 ## 本机接口约定（DSH 0.2.x，写死免得再踩）
 
 - 会话：`ctx.sessions.get(agent.id)`，**不是** `agent.session`；`inject` 必须声明 `"sessions"`
