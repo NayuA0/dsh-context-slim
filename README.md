@@ -119,21 +119,45 @@ tool result c2                 ← 触发保护，留下
 
 ## 安装
 
-本机（profile）：
+### 先对版本
+
+这个插件吃宿主的内部接口，`package.json` 里卡的是：
+
+```json
+"engines": { "dsh": ">=0.2.0-0 <0.3.0-0" }
+```
+
+**版本对不上时它不报错，是静默不加载。** 现象是：挂载写了、看起来也在，但 `slim_context` 这个工具根本不出现，或者出现了调不动。别去别处找原因，先看这一条。
+
+### 从 GitHub 装（推荐）
 
 ```bash
-# 1. 复制到 profile 的 node_modules
-cp -r . ~/.dsh/profiles/desktop/node_modules/dsh-context-slim/
+cd ~/.dsh/profiles/<你的 profile>
+pnpm add github:NayuA0/dsh-context-slim
+```
 
-# 2. package.json 的 dependencies 里加（路径换成你放源码的位置）
-"dsh-context-slim": "file:<你的路径>/dsh-context-slim"
+再往 `cordis.patch.yml` 的 `- insert:` 列表里加（**必须在 insert 的子列表里**，写在文件顶层宿主不读）：
 
-# 3. cordis.patch.yml 的 - insert: 列表里加（必须在 insert 子列表里，不是顶层）
+```yaml
 - id: dsh-context-slim
   name: dsh-context-slim
 ```
 
-**改完要重启宿主**（没有热重载）。
+重启宿主 —— **没有热重载**。起来之后用 `cordis_inspect_query` 的 `Config.listConfigs` 按包名查一次，查得到才算挂上了。
+
+### 跟着源码改
+
+```bash
+git clone https://github.com/NayuA0/dsh-context-slim
+cd ~/.dsh/profiles/<你的 profile>
+pnpm add file:<你 clone 的位置>/dsh-context-slim
+```
+
+改完源码记得同步到 `node_modules` 那一份 —— **两份不是硬链接**（`ls -i` 看 inode 就知道，不一样），只改源码不会生效。
+
+### 别把它当长期依赖
+
+它用的是 `registerMessageProjection` 这类宿主内部接口，DSH 升级就可能坏。所以没有 npm 发布、也不打算发 —— 从 GitHub 装，什么坏了能一眼看出装的是哪一天的 commit。
 
 ## 本机接口约定（DSH 0.2.x，写死免得再踩）
 
